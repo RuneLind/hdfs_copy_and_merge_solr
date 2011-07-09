@@ -1,8 +1,12 @@
-if(ARGV.size < 3)
+require 'readline'
+require 'open-uri'
+
+if (ARGV.size < 3)
   puts "need arguments: hdfs_path copy_destination merged_destination"
   puts "hdfs_path:         (example:'solrindex/news_20110706') if files already on disk just let this arg be ''"
   puts "copy_destination:  (example:'/data/f/to_be_merged/news_20110706')"
   puts "merged_destination (example:'/data/e/solr/news/news_20110706') dont want to merge? let this be ''"
+  puts "job_id: (true - for just output)"
   puts "test: (true - for just output)"
   exit
 end
@@ -10,13 +14,35 @@ end
 @hadoop_src = ARGV[0] || 'solrindex/newsFinancialSentimentsEngNor_20110706'
 @local_src = ARGV[1] || '/data/f/to_be_merged/fin_sent_20110706'
 @merge_dst = ARGV[2] || '/data/e/solr/sentiments/financial_news_20110706'
-@test = ARGV[3] || false
+@job_id = ARGV[3]
+@test = ARGV[4] || false
 
-copy_from_hadoop = @hadoop_src != nil && @hadoop_src.size > 0 ? true : false
-merge_index = @merge_dst != nil && @merge_dst.size > 0 ? true : false
+copy_from_hadoop = !@hadoop_src.to_s.empty?
+merge_index = !@merge_dst.to_s.empty?
+wait_for_job = !@job_id.to_s.empty?
+
+puts "Wait from job   :#{@job_id}" if wait_for_job
+puts "Copy from hadoop:#{@hadoop_src}" if copy_from_hadoop
+puts "Local path      :#{@local_src}"
+puts "Merge index to  :#{@merge_dst}" if merge_index
+puts "test            :#{@test}" if @test
+puts "continue? (y/n)?"
+exit if Readline.readline != 'y'
 
 solr_version = "4.0-2011-05-19_08-42-38"
 solr_lib_path = "/usr/lib/solr/apache-solr-4.0-2011-05-19_08-42-38/example/webapps/WEB-INF/lib/"
+
+def get_job_status(job_id ="job_201106212134_0272")
+  begin
+    src = open("http://jobtracker.companybook.no:50030/jobdetails.jsp?jobid=#{job_id}").read()
+    status = /<b>Status:\s*<\/b>\s*(.*)</.match(src).to_a[1]
+    running_for = /<b>Running for:\s*<\/b>\s*(.*)</.match(src).to_a[1]
+    complete =  src.scan(/\d+.\d+\d+%/)
+    return status, running_for, complete
+  rescue Exception => ex
+    return [ex.message]
+  end
+end
 
 def get_part_to_date_from_hadoop
   printf "finding files and job.info on hdfs:"
@@ -50,6 +76,20 @@ def get_folders(path)
     folders << folder
   end
   folders
+end
+
+if wait_for_job
+  status = []
+  loop do
+    status = get_job_status(@job_id)
+    print "\rjob [#{@job_id}] [#{status[0]}] time [#{status[1]}] map/reduce:#{status[2]} #{Time.now}       "
+    break if status[0] == 'Success'
+    sleep(5)
+  end
+  if status[0] != 'Success'
+    puts "\njob [#{@job_id}] failed! exiting"
+    exit
+  end
 end
 
 if copy_from_hadoop
