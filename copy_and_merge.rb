@@ -60,8 +60,10 @@ def get_part_to_date_from_hadoop
 end
 
 def sys_cmd(cmd)
-  puts cmd
+  start = Time.now
   %x[#{cmd}] if !@test
+  time_used = Time.now - start
+  puts "%s - [%6.2f]" % [cmd, time_used]
 end
 
 def makedir(path)
@@ -82,9 +84,9 @@ if wait_for_job
   status = []
   loop do
     status = get_job_status(@job_id)
-    print "\rjob [#{@job_id}] [#{status[0]}] time [#{status[1]}] map/reduce:#{status[2]} #{Time.now}       "
-    break if status[0] == 'Success'
-    sleep(5)
+    puts "job [#{@job_id}] [#{status[0]}] time [#{status[1]}] map/reduce:#{status[2]} #{Time.now}       "
+    break if status[0] != 'Running'
+    sleep(60)
   end
   if status[0] != 'Success'
     puts "\njob [#{@job_id}] failed! exiting"
