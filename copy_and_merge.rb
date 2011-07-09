@@ -44,19 +44,19 @@ def get_job_status(job_id ="job_201106212134_0272")
   end
 end
 
-def get_part_to_date_from_hadoop
+def get_part_to_date_from_hadoop(hadoop_src)
   printf "finding files and job.info on hdfs:"
-  list_files_cmd = "hadoop fs -du #{@hadoop_src} | grep part | gawk '{ if ($1>60)  print $2 }'"
+  list_files_cmd = "hadoop fs -du #{hadoop_src} | grep part | gawk '{ if ($1>60)  print $0 }'"
   directory_list = %x[#{list_files_cmd}]
-  map = {}
-  directory_list.split("\n").each do |file|
-    part = /part-.*/.match(file)
-    job_info = %x[hadoop fs -cat #{file.strip}/.job.info]
-    printf "."
-    map[part.to_s]=job_info
+  list = []
+  directory_list.split("\n").each do |size_filename|
+    size, filename = size_filename.split(/\s+/)
+    job_info = %x[hadoop fs -cat #{filename.strip}/.job.info]
+    print "."
+    list << [filename, size, job_info]
   end
   puts ""
-  map
+  list
 end
 
 def sys_cmd(cmd)
@@ -88,19 +88,19 @@ if wait_for_job
     break if status[0] != 'Running'
     sleep(60)
   end
-  if status[0] != 'Success'
+  if status[0] != 'Succeeded'
     puts "\njob [#{@job_id}] failed! exiting"
     exit
   end
 end
 
 if copy_from_hadoop
-  map = get_part_to_date_from_hadoop
+  list = get_part_to_date_from_hadoop(@hadoop_src)
   puts ""
-  map.each do |part, json|
+  list.each do |file, size, json|
     key = /\d+/.match(json).to_s
     path = "#{@local_src}/#{key}"
-    sys_cmd "hadoop fs -copyToLocal #{@hadoop_src}/#{part} #{path}"
+    sys_cmd "hadoop fs -copyToLocal #{file} #{path}"
   end
 end
 
@@ -115,4 +115,3 @@ if merge_index
   puts ""
   sys_cmd(merge)
 end
-
