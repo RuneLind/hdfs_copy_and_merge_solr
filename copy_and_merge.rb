@@ -6,7 +6,7 @@ if (ARGV.size < 3)
   puts "hdfs_path:         (example:'solrindex/news_20110706') if files already on disk just let this arg be ''"
   puts "copy_destination:  (example:'/data/f/to_be_merged/news_20110706')"
   puts "merged_destination (example:'/data/e/solr/news/news_20110706') dont want to merge? let this be ''"
-  puts "job_id: (true - for just output)"
+  puts "job_id: (example:job_201106212134_0273)"
   puts "test: (true - for just output)"
   exit
 end
@@ -65,8 +65,8 @@ def sys_cmd(cmd, size=0)
   %x[#{cmd}] if !@test
   sleep 1
   time_used = Time.now - start
-  puts "%s - [%6.2f]" % [cmd, time_used] if size == 0
-  puts "%s - [%6.2f] %6.2fMb/s" % [cmd, time_used, (size/time_used)/(1024*1024)] if size > 0
+  puts "%s - [%6.2fs]" % [cmd, time_used] if size == 0
+  puts "%s - [%6.2fs] %6.2fMb/s" % [cmd, time_used, (size/time_used)/(1024*1024)] if size > 0
 end
 
 def makedir(path)
@@ -113,7 +113,7 @@ if merge_index
   makedir(@merge_dst)
   merge << @merge_dst + " "
   folders = get_folders(@local_src)
-  puts "will merge #{folders} to:#{@merge_dst}"
+  puts "will merge [#{folders}] to:#{@merge_dst}"
   merge << folders .join(' ')
   merge << " >solr_merge.out"
   puts ""
