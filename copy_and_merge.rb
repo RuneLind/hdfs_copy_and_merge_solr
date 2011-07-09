@@ -59,11 +59,14 @@ def get_part_to_date_from_hadoop(hadoop_src)
   list
 end
 
-def sys_cmd(cmd)
+def sys_cmd(cmd, size=0)
+  size = size.to_i
   start = Time.now
   %x[#{cmd}] if !@test
+  sleep 1
   time_used = Time.now - start
-  puts "%s - [%6.2f]" % [cmd, time_used]
+  puts "%s - [%6.2f]" % [cmd, time_used] if size == 0
+  puts "%s - [%6.2f] %6.2fMb/s" % [cmd, time_used, (size/time_used)/(1024*1024)] if size > 0
 end
 
 def makedir(path)
@@ -100,11 +103,12 @@ if copy_from_hadoop
   list.each do |file, size, json|
     key = /\d+/.match(json).to_s
     path = "#{@local_src}/#{key}"
-    sys_cmd "hadoop fs -copyToLocal #{file} #{path}"
+    sys_cmd("hadoop fs -copyToLocal #{file} #{path}", size)
   end
 end
 
 if merge_index
+  sys_cmd "rm -f solr_merge.out"
   merge = "java -cp #{solr_lib_path}/lucene-core-#{solr_version}.jar:#{solr_lib_path}/lucene-misc-#{solr_version}.jar:#{solr_lib_path}/lucene-analyzers-common-#{solr_version}.jar org/apache/lucene/misc/IndexMergeTool "
   makedir(@merge_dst)
   merge << @merge_dst + " "
