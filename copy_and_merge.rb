@@ -29,8 +29,8 @@ puts "test            :#{@test}" if @test
 puts "continue? (y/n)?"
 exit if Readline.readline != 'y'
 
-solr_version = "4.0-2011-05-19_08-42-38"
-solr_lib_path = "/usr/lib/solr/apache-solr-4.0-2011-05-19_08-42-38/example/webapps/WEB-INF/lib/"
+solr_version = "3.3.0"
+solr_lib_path = "/usr/lib/solr/apache-solr-3.3.0/example/webapps/WEB-INF/lib/"
 
 def get_job_status(job_id ="job_201106212134_0272")
   begin
