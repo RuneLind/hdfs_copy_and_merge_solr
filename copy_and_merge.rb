@@ -37,7 +37,7 @@ def get_job_status(job_id ="job_201106212134_0272")
     src = open("http://jobtracker.companybook.no:50030/jobdetails.jsp?jobid=#{job_id}").read()
     status = /<b>Status:\s*<\/b>\s*(.*)</.match(src).to_a[1]
     running_for = /<b>Running for:\s*<\/b>\s*(.*)</.match(src).to_a[1]
-    complete =  src.scan(/\d+.\d+\d+%/)
+    complete = src.scan(/\d+.\d+\d+%/)
     return status, running_for, complete
   rescue Exception => ex
     return [ex.message]
@@ -48,25 +48,30 @@ def get_part_to_date_from_hadoop(hadoop_src)
   printf "finding files and job.info on hdfs:"
   list_files_cmd = "hadoop fs -du #{hadoop_src} | grep part | gawk '{ if ($1>60)  print $0 }'"
   directory_list = %x[#{list_files_cmd}]
+  total_size = 0
+  total_num_docs = 0
   list = []
   directory_list.split("\n").each do |size_filename|
     size, filename = size_filename.split(/\s+/)
     job_info = %x[hadoop fs -cat #{filename.strip}/.job.info]
     print "."
     list << [filename, size, job_info]
+    total_size += size.to_i
+    total_num_docs += /\d+\s*documents/.match(job_info).to_s.to_i
   end
-  puts ""
-  list
+  puts " Total size:%6.2fGb DocCount:%9d" % [total_size/(1024*1024*1024.0), total_num_docs]
+  return total_size, list
 end
 
-def sys_cmd(cmd, size=0)
+def sys_cmd(cmd, size=0, status="")
   size = size.to_i
   start = Time.now
   %x[#{cmd}] if !@test
   sleep 1
   time_used = Time.now - start
-  puts "%s - [%6.2fs]" % [cmd, time_used] if size == 0
-  puts "%s - [%6.2fs] %6.2fMb/s" % [cmd, time_used, (size/time_used)/(1024*1024)] if size > 0
+  out = "%s - [%04.1fGb %3.0fs] %s" % [cmd, size/(1024*1024*1024.0), time_used, status]
+  out << " %5.1fMb/s" % [(size/time_used)/(1024*1024)] if size > 0
+  puts out
 end
 
 def makedir(path)
@@ -98,12 +103,19 @@ if wait_for_job
 end
 
 if copy_from_hadoop
-  list = get_part_to_date_from_hadoop(@hadoop_src)
-  puts ""
+  total_size, list = get_part_to_date_from_hadoop(@hadoop_src)
+  done_size = 0
+  cnt = 0
   list.each do |file, size, json|
     key = /\d+/.match(json).to_s
     path = "#{@local_src}/#{key}"
-    sys_cmd("hadoop fs -copyToLocal #{file} #{path}", size)
+    done_size += size.to_i
+    percentage = (done_size * 100) / total_size
+
+    out = " %02d/%02d-%03d" % [cnt+=1, list.size, percentage] << "% "
+
+    sys_cmd("hadoop fs -copyToLocal #{file} #{path}", size, out)
+
   end
 end
 
@@ -114,7 +126,7 @@ if merge_index
   merge << @merge_dst + " "
   folders = get_folders(@local_src)
   puts "will merge [#{folders}] to:#{@merge_dst}"
-  merge << folders .join(' ')
+  merge << folders.join(' ')
   merge << " >solr_merge.out"
   puts ""
   sys_cmd(merge)
