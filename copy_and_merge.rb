@@ -6,25 +6,29 @@ if (ARGV.size < 3)
   puts "hdfs_path:         (example:'solrindex/news_20110706') if files already on disk just let this arg be ''"
   puts "copy_destination:  (example:'/data/f/to_be_merged/news_20110706')"
   puts "merged_destination (example:'/data/e/solr/news/news_20110706') dont want to merge? let this be ''"
+  puts "move_after_merge   (example:'/data/c/solr/news/news_20110706') dont want to move? let this be ''"
   puts "job_id: (example:job_201106212134_0273)"
   puts "test: (true - for just output)"
   exit
 end
 
-@hadoop_src = ARGV[0] || 'solrindex/newsFinancialSentimentsEngNor_20110706'
-@local_src = ARGV[1] || '/data/f/to_be_merged/fin_sent_20110706'
-@merge_dst = ARGV[2] || '/data/e/solr/sentiments/financial_news_20110706'
-@job_id = ARGV[3]
-@test = ARGV[4] || false
+@hadoop_src = ARGV[0]
+@local_src = ARGV[1]
+@merge_dst = ARGV[2]
+@move_dst = ARGV[3]
+@job_id = ARGV[4]
+@test = ARGV[5] || false
 
 copy_from_hadoop = !@hadoop_src.to_s.empty?
 merge_index = !@merge_dst.to_s.empty?
+move_index = !@move_dst.to_s.empty?
 wait_for_job = !@job_id.to_s.empty?
 
 puts "Wait from job   :#{@job_id}" if wait_for_job
 puts "Copy from hadoop:#{@hadoop_src}" if copy_from_hadoop
 puts "Local path      :#{@local_src}"
 puts "Merge index to  :#{@merge_dst}" if merge_index
+puts "Move index to   :#{@move_dst}" if move_index
 puts "test            :#{@test}" if @test
 puts "continue? (y/n)?"
 exit if Readline.readline != 'y'
@@ -130,4 +134,9 @@ if merge_index
   merge << " >solr_merge.out"
   puts ""
   sys_cmd(merge)
+end
+
+if move_index
+  makedir(@move_dst)
+  sys_cmd "mv #{@merge_dst} #{@move_dst}"
 end
