@@ -73,7 +73,9 @@ def sys_cmd(cmd, size=0, status="")
   %x[#{cmd}] if !@test
   sleep 1
   time_used = Time.now - start
-  out = "%s - [%04.1fGb %3.0fs] %s" % [cmd, size/(1024*1024*1024.0), time_used, status]
+  out = "#{cmd} - ["
+  out << "%04.1fGb " % [size/(1024*1024*1024.0)] if size > 0
+  out << "%3.0fs] %s" % [time_used, status]
   out << " %5.1fMb/s" % [(size/time_used)/(1024*1024)] if size > 0
   puts out
 end
@@ -138,5 +140,6 @@ end
 
 if move_index
   makedir(@move_dst)
-  sys_cmd "mv #{@merge_dst} #{@move_dst}"
+  size = %x[du -k #{@merge_dst}].split(/\n/).last.to_i
+  sys_cmd( "mv #{@merge_dst} #{@move_dst}", size*1024 )
 end
