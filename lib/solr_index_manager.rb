@@ -38,7 +38,7 @@ class SolrIndexManager
 
   def initialize(args)
     if args.size == 1
-      @opts = args[0] #Options.new(args[0])
+      @opts = args[0]
       @hadoop_src = @opts[:hadoop_src]
       @local_src = @opts[:copy_dst]
       @merge_dst = @opts[:merge_dst]
@@ -68,48 +68,59 @@ class SolrIndexManager
     puts "Move index to    :#{@move_dst}" if @move_index
     puts "Max merge size   :#{@max_merge_size}" if @max_merge_size
     puts "dst_distribution :#{@dst_distribution}" if @dst_distribution
-    puts "continue? (y/n)?"
-    exit if Readline.readline != 'y'
-
-    @max_merge_size = /\d+/.match(@max_merge_size).to_s.to_i * 1024
-    @max_merge_size = 1000000000 if @max_merge_size == 0
+    continue_or_not
 
     wait_for_job if @wait_for_job
 
-    total_size, file_list = get_files_with_info_from_hdfs(@hadoop_src)
-    batches = crete_batches(file_list, @max_merge_size)
-
-    sizes = batches.map { |batch_size, batch| "#{batch_size/1024}Gb" }.join(',')
-    puts "Will merge in #{batches.size} batches with sizes=#{sizes}"
+    @max_merge_size = convert_from_gigabytes(@max_merge_size)
 
     if @copy_from_hadoop
-      copy_comands = create_copy_commands(batches)
+      file_list = get_files_with_info_from_hdfs(@hadoop_src)
+      batches = create_batches(file_list, @max_merge_size)
+
+      copy_commands = create_copy_commands(batches)
+      @dst_distribution
+      copy_commands.each { |info, parts|
+        puts info
+        parts.each { |hdfs_src, dest, size, key| puts "#{hdfs_src} -> #{dest}" }
+      }
+      continue_or_not
+
+      cnt=0
+      copy_commands.each { |info, parts|
+        puts info
+        folders = []
+        keys = []
+        parts.each { |hdfs_src, dest, size, key, status|
+          sys_cmd("hadoop fs -copyToLocal #{hdfs_src} #{dest}", size, status)
+          folders << dest
+          keys << key
+        }
+
+        key = keys.join('_')
+        eval_data = @dst_distribution[(cnt+=1) % @dst_distribution.size-1]
+        merge_to = eval('"' + eval_data + '"')
+
+        merge_index(folders, @merge_dst + merge_to)
+        #move_index()
+        rm_folders(folders)
+        puts ""
+      }
     end
+  end
 
-
-    puts "continue? (y/n)?"
-    exit if Readline.readline != 'y'
+  def rm_folders(folders)
+    puts "todo: delete #{folders}"
   end
 
   def create_copy_commands(batches)
     cnt = 0
-    batches.each do |batch_size, folders|
-      [ "Batch [#{cnt+=1}/#{batches.size}] FolderCnt=#{folders.size} BatchSize:#{batch_size/1024}",
-      create_copy_from_hadoop_commands(batch_size, folders) ]
-    end
-    #copy_from_hadoop(total_size, batch) if @copy_from_hadoop
-
-    #if @merge_index
-    #  folders = get_folders(@local_src)
-    #  merge_parts = folders #analyze(folders)
-    #  merge_parts.each do |adjusted_folders|
-    #    merge_index(adjusted_folders)
-    #  end
-    #end
-    #move_index if @move_index
+    batches.map { |batch_size, folders|
+      ["Batch [#{cnt+=1}/#{batches.size}] FolderCnt=#{folders.size} BatchSize:#{batch_size/1024}",
+       create_copy_from_hadoop_commands(batch_size, folders)] }
   end
 
-  def crete_batches(folders, size_limit)
+  def create_batches(folders, size_limit)
     list_of_batches = []
     batch = []
     total_size = 0
@@ -126,6 +137,12 @@ class SolrIndexManager
     list_of_batches
   end
 
+  def convert_from_gigabytes(merge_size_as_gb)
+    merge_size = /\d+/.match(merge_size_as_gb).to_s.to_i * 1024
+    return merge_size if merge_size > 0
+    1000000000
+  end
+
   def get_job_status(job_id ="job_201106212134_0272")
     begin
       src = open("http://jobtracker.companybook.no:50030/jobdetails.jsp?jobid=#{job_id}").read()
@@ -136,6 +153,11 @@ class SolrIndexManager
     rescue Exception => ex
       return [ex.message]
     end
+  end
+
+  def continue_or_not
+    puts "continue? (y/n)?"
+    exit if Readline.readline != 'y'
   end
 
   def get_files_with_info_from_hdfs(hadoop_src)
@@ -155,7 +177,7 @@ class SolrIndexManager
       total_num_docs += /\d+\s*documents/.match(job_info).to_s.to_i
     end
     puts " Total size:%6.2fGb DocCount:%9d" % [total_size/(1024.0), total_num_docs]
-    return total_size, list.sort_by { |name, size, job_info| job_info }
+    return list.sort_by { |name, size, job_info| job_info }
   end
 
   def sys_cmd(cmd, size=0, status="")
@@ -209,31 +231,17 @@ class SolrIndexManager
       percentage = (done_size * 100) / total_size
 
       out = " %02d/%02d-%03d" % [cnt+=1, file_info_list.size, percentage] << "% "
-      ["hadoop fs -copyToLocal #{file} #{path}", size, out]
+      [file, path, size, key, out]
     end
   end
 
-  def copy_from_hadoop(total_size, file_info_list)
-    done_size = 0
-    cnt = 0
-    file_info_list.each do |file, size, json|
-      key = /\d+/.match(json).to_s
-      path = "#{@local_src}/#{key}"
-      done_size += size.to_i
-      percentage = (done_size * 100) / total_size
-
-      out = " %02d/%02d-%03d" % [cnt+=1, file_info_list.size, percentage] << "% "
-      sys_cmd("hadoop fs -copyToLocal #{file} #{path}", size, out)
-    end
-  end
-
-  def merge_index(folders)
+  def merge_index(folders, merge_dest)
     sys_cmd "rm -f solr_merge.out"
     merge = "java -cp #{SOLR_LIB_PATH}/lucene-core-#{SOLR_VERSION}.jar:#{SOLR_LIB_PATH}/lucene-misc-#{SOLR_VERSION}.jar:#{SOLR_LIB_PATH}/lucene-analyzers-common-#{SOLR_VERSION}.jar org/apache/lucene/misc/IndexMergeTool "
-    makedir(@merge_dst)
-    merge << @merge_dst + " "
+    makedir(merge_dest)
+    merge << merge_dest + " "
 
-    puts "will merge [#{folders}] to:#{@merge_dst}"
+    puts "will merge to: '#{merge_dest}'"
     merge << folders.join(' ')
     merge << " >solr_merge.out"
     puts ""
