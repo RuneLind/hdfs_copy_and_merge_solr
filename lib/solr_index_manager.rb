@@ -67,7 +67,7 @@ class SolrIndexManager
     puts "Merge index to   :#{@merge_dst}" if @merge_index
     puts "Move index to    :#{@move_dst}" if @move_index
     puts "Max merge size   :#{@max_merge_size}" if @max_merge_size
-    puts "dst_distribution :#{@dst_distribution}" if @dst_distribution
+    puts "dst_distribution :\n#{@dst_distribution.map {|d| " #{d}"}.join("\n")}" if @dst_distribution
     continue_or_not
 
     wait_for_job if @wait_for_job
@@ -82,7 +82,7 @@ class SolrIndexManager
       @dst_distribution
       copy_commands.each { |info, parts|
         puts info
-        parts.each { |hdfs_src, dest, size, key| puts "#{hdfs_src} -> #{dest}" }
+        parts.each { |hdfs_src, dest| puts "#{hdfs_src} -> #{dest}" }
       }
       continue_or_not
 
@@ -101,7 +101,8 @@ class SolrIndexManager
         eval_data = @dst_distribution[(cnt+=1) % @dst_distribution.size-1]
         merge_to = eval('"' + eval_data + '"')
 
-        merge_index(folders, @merge_dst + merge_to)
+        #@merge_dst +
+        merge_index(folders, merge_to)
         #move_index()
         rm_folders(folders)
         puts ""
@@ -110,7 +111,9 @@ class SolrIndexManager
   end
 
   def rm_folders(folders)
-    puts "todo: delete #{folders}"
+    folders.each do |folder|
+      sys_cmd("rm -rf #{folder}")
+    end
   end
 
   def create_copy_commands(batches)
@@ -241,7 +244,7 @@ class SolrIndexManager
     makedir(merge_dest)
     merge << merge_dest + " "
 
-    puts "will merge to: '#{merge_dest}'"
+    puts "wil merge to: '#{merge_dest}'"
     merge << folders.join(' ')
     merge << " >solr_merge.out"
     puts ""

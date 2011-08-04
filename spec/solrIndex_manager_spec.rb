@@ -36,17 +36,17 @@ describe SolrIndexManager do
             key_filter: '',
             hadoop_src: 'solrindex/test_20110730',
             copy_dst: '/copy_to/test_20110730',
-            merge_dst: '/merge_to/test_20110730',
-            move_dst: '/move_to/test_20110730/data/index',
+            #merge_dst: '/merge_to/test_20110730',
+            #move_dst: '/move_to/test_20110730/data/index',
             #            job_id: 'job_201107280750_0094',
             max_merge_size: '100Gb',
             dst_distribution:
-                ['/data/a/solr/news/#{key}',
-                 '/data/b/solr/news/#{key}',
-                 '/data/c/solr/news/#{key}',
-                 '/data/d/solr/news/#{key}',
-                 '/data/e/solr/news/#{key}',
-                 '/data/f/solr/news/#{key}']
+                ['/data/a/solr/news/20110815/#{key}/data/index',
+                 '/data/b/solr/news/20110815/#{key}/data/index',
+                 '/data/c/solr/news/20110815/#{key}/data/index',
+                 '/data/d/solr/news/20110815/#{key}/data/index',
+                 '/data/e/solr/news/20110815/#{key}/data/index',
+                 '/data/f/solr/news/20110815/#{key}/data/index']
         }
     ]
 

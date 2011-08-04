@@ -48,7 +48,7 @@ def get_job_status(job_id ="job_201106212134_0272")
   end
 end
 
-def get_part_to_date_from_hadoop(hadoop_src)
+def get_files_with_info_from_hdfs(hadoop_src)
   printf "finding files and job.info on hdfs:"
   list_files_cmd = "hadoop fs -du #{hadoop_src} | grep part | gawk '{ if ($1>60)  print $0 }'"
   directory_list = %x[#{list_files_cmd}]
@@ -109,7 +109,7 @@ if wait_for_job
 end
 
 if copy_from_hadoop
-  total_size, list = get_part_to_date_from_hadoop(@hadoop_src)
+  total_size, list = get_files_with_info_from_hdfs(@hadoop_src)
   done_size = 0
   cnt = 0
   list.each do |file, size, json|
