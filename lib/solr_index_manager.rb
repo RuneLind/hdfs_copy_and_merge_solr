@@ -97,7 +97,7 @@ class SolrIndexManager
           keys << key
         }
 
-        key = keys.join('_')
+        key = "#{keys.first}-#{keys.last}"
         eval_data = @dst_distribution[(cnt+=1) % @dst_distribution.size-1]
         merge_to = eval('"' + eval_data + '"')
 
