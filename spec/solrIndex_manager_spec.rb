@@ -31,26 +31,29 @@ describe SolrIndexManager do
     #    '/copy_to/test_20110730',
     #    '/move_to/test_20110730',
     #]
+    #?action=CREATE&name=news_20110725&instanceDir=/data/f/solr/news/20110815/20110725_20110807&persist=true'
     @args = [
         {
-            key_filter: '',
             hadoop_src: 'solrindex/test_20110730',
             copy_dst: '/copy_to/test_20110730',
             #merge_dst: '/merge_to/test_20110730',
             #move_dst: '/move_to/test_20110730/data/index',
             #            job_id: 'job_201107280750_0094',
             max_merge_size: '100Gb',
+            config_src_folder: 'src_conf',
+            core_prefix: 'news_',
+            core_admin: 'http://localhost:8983/solr/admin/cores',
             dst_distribution:
-                ['/data/a/solr/news/20110815/#{key}/data/index',
-                 '/data/b/solr/news/20110815/#{key}/data/index',
-                 '/data/c/solr/news/20110815/#{key}/data/index',
-                 '/data/d/solr/news/20110815/#{key}/data/index',
-                 '/data/e/solr/news/20110815/#{key}/data/index',
-                 '/data/f/solr/news/20110815/#{key}/data/index']
+                ['/data/a/solr/news/20110815/#{key}',
+                 '/data/b/solr/news/20110815/#{key}',
+                 '/data/c/solr/news/20110815/#{key}',
+                 '/data/d/solr/news/20110815/#{key}',
+                 '/data/e/solr/news/20110815/#{key}',
+                 '/data/f/solr/news/20110815/#{key}']
         }
     ]
 
-    #@manager = SolrIndexManager.new(args)
+    @manager = SolrIndexManager.new(@args)
   end
 
 
@@ -59,15 +62,8 @@ describe SolrIndexManager do
   #end
 
   it "should do all without crashing" do
-    @manager = SolrIndexManager.new(@args)
+    #@manager = SolrIndexManager.new(@args)
     @manager.go()
-  end
-
-  it "should yaml file" do
-    opts = YAML::load(File.open("template.yaml"))
-    #p opts
-    manager = SolrIndexManager.new(opts)
-    manager.go()
   end
 
   it 'should parse content from hadoop fs -ls' do

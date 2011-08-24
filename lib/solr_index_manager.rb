@@ -1,37 +1,6 @@
 require 'readline'
 require 'open-uri'
 
-class Options
-  def initialize(options_file)
-    @opt = YAML::load(File.open(options_file))
-#    opt = {
-#        key_filter: '',
-#        hadoop_src: 'solrindex/test_20110730',
-#        copy_dst: '/copy_to/test_20110730',
-#        merge_dst: '/merge_to/test_20110730',
-#        move_dst: '/move_to/test_20110730/data/index',
-#        job_id: 'job_201107280750_0094',
-#        max_merge_size: '50Gb',
-#        dst_distribution:
-#            ['/data/a/solr/news/#{key}',
-#             '/data/b/solr/news/#{key}',
-#             '/data/c/solr/news/#{key}',
-#             '/data/d/solr/news/#{key}',
-#             '/data/e/solr/news/#{key}',
-#             '/data/f/solr/news/#{key}']
-#    }
-#    save(opt)
-  end
-
-  def [](arg)
-    @opt[arg]
-  end
-
-  def save(yaml)
-    File.open("template.yaml", 'w:UTF-8') { |out| YAML::dump(yaml, out) }
-  end
-end
-
 class SolrIndexManager
   SOLR_VERSION = "3.3.0"
   SOLR_LIB_PATH = "/usr/lib/solr/apache-solr-3.3.0/example/webapps/WEB-INF/lib/"
@@ -41,11 +10,10 @@ class SolrIndexManager
       @opts = args[0]
       @hadoop_src = @opts[:hadoop_src]
       @local_src = @opts[:copy_dst]
-      @merge_dst = @opts[:merge_dst]
-      @move_dst = @opts[:move_dst]
       @job_id = @opts[:job_id]
       @max_merge_size = @opts[:max_merge_size]
       @dst_distribution = @opts[:dst_distribution]
+      @config_src_folder = @opts[:config_src_folder]
     else
       @hadoop_src = args[0]
       @local_src = args[1]
@@ -55,19 +23,19 @@ class SolrIndexManager
     end
 
     @copy_from_hadoop = !@hadoop_src.to_s.empty?
-    @merge_index = !@merge_dst.to_s.empty?
-    @move_index = !@move_dst.to_s.empty?
     @wait_for_job = !@job_id.to_s.empty?
   end
+
+  #Batch = Struct.new(:batch_size, :folders)
+  CopyInfo = Struct.new(:info, :folders, :merge_to, :hadoop_commands, :result_folder_name, :core_name)
 
   def go
     puts "Wait from job    :#{@job_id}" if @wait_for_job
     puts "Copy from hadoop :#{@hadoop_src}" if @copy_from_hadoop
     puts "Local path       :#{@local_src}"
-    puts "Merge index to   :#{@merge_dst}" if @merge_index
-    puts "Move index to    :#{@move_dst}" if @move_index
     puts "Max merge size   :#{@max_merge_size}" if @max_merge_size
-    puts "dst_distribution :\n#{@dst_distribution.map {|d| " #{d}"}.join("\n")}" if @dst_distribution
+    puts "Config src_folder:#{@config_src_folder}" if @config_src_folder
+    puts "dst_distribution :\n#{@dst_distribution.map { |d| " #{d}" }.join("\n")}" if @dst_distribution
     continue_or_not
 
     wait_for_job if @wait_for_job
@@ -76,39 +44,93 @@ class SolrIndexManager
 
     if @copy_from_hadoop
       file_list = get_files_with_info_from_hdfs(@hadoop_src)
-      batches = create_batches(file_list, @max_merge_size)
-
+      batches = group_folders(file_list, @max_merge_size)
       copy_commands = create_copy_commands(batches)
-      @dst_distribution
-      copy_commands.each { |info, parts|
-        puts info
-        parts.each { |hdfs_src, dest| puts "#{hdfs_src} -> #{dest}" }
-      }
+
+      commands = create_commands(copy_commands)
+      commands.each do |copy_info|
+        puts "#{copy_info.info} will merge to:#{copy_info.merge_to + '/data/index'}"
+        puts "will copy #{@config_src_folder} to '#{copy_info.merge_to}'" if @config_src_folder
+        puts "will create core '#{copy_info.core_name}' with path:'#{copy_info.merge_to}' on '#{@opts[:core_admin]}'"
+      end
+
+      puts ""
       continue_or_not
 
-      cnt=0
-      copy_commands.each { |info, parts|
-        puts info
-        folders = []
-        keys = []
-        parts.each { |hdfs_src, dest, size, key, status|
+      commands.each do |copy_info|
+        puts copy_info.info
+        copy_info.hadoop_commands.each do |hdfs_src, dest, size, status|
           sys_cmd("hadoop fs -copyToLocal #{hdfs_src} #{dest}", size, status)
-          folders << dest
-          keys << key
-        }
+        end
 
-        key = "#{keys.first}-#{keys.last}"
-        eval_data = @dst_distribution[(cnt+=1) % @dst_distribution.size-1]
-        merge_to = eval('"' + eval_data + '"')
+        merge_index(copy_info.folders, copy_info.merge_to + '/data/index')
+        sys_cmd("cp -r #{@config_src_folder} #{copy_info.merge_to}/conf") if @config_src_folder
 
-        #@merge_dst +
-        merge_index(folders, merge_to)
-        #move_index()
-        rm_folders(folders)
-        puts ""
-      }
+        rm_folders(copy_info.folders)
+
+        #puts "will copy #{@opts[:config_src_folder]}"
+        #puts "will create core '#{copy_info.core_name}' on '#{@opts[:core_admin]}'"
+        #copy_info.hadoop_commands.each { |hdfs_src, dest| puts "#{hdfs_src} -> #{dest}" }
+
+        #puts copyInfo.result_folder_name
+      end
     end
   end
+
+  def check_src_config_files()
+    sys_cmd("ls #{@config_src_folder}")
+  end
+
+  def create_commands(copy_commands)
+    cnt=0
+    commands = []
+    copy_commands.each do |info, parts|
+      #puts info
+      folders = []
+      keys = []
+      hadoop_commands = []
+      parts.each { |hdfs_src, dest, size, key, status|
+        #hadoop_commands << ["hadoop fs -copyToLocal #{hdfs_src} #{dest}", size, status]
+        hadoop_commands << [hdfs_src, dest, size, key, status]
+        folders << dest
+        keys << key
+      }
+
+      key = "#{keys.first}-#{keys.last}"
+      eval_data = @dst_distribution[(cnt+=1) % @dst_distribution.size-1]
+      merge_to = eval('"' + eval_data + '"')# + '/data/index'
+
+      core_name = @opts[:core_prefix].to_s + key
+      #merge_index(folders, merge_to)
+      #rm_folders(folders)
+      #puts ""
+      commands << CopyInfo.new(info, folders, merge_to, hadoop_commands, key, core_name)
+    end
+    commands
+  end
+
+  #def create_commands
+  #  copy_commands.each do |info, parts|
+  #    puts info
+  #    folders = []
+  #    keys = []
+  #    parts.each { |hdfs_src, dest, size, key, status|
+  #      sys_cmd("hadoop fs -copyToLocal #{hdfs_src} #{dest}", size, status)
+  #      folders << dest
+  #      keys << key
+  #    }
+  #
+  #    key = "#{keys.first}-#{keys.last}"
+  #    eval_data = @dst_distribution[(cnt+=1) % @dst_distribution.size-1]
+  #    merge_to = eval('"' + eval_data + '"')
+  #
+  #    merge_index(folders, merge_to)
+  #    rm_folders(folders)
+  #    puts ""
+  #    commands << {:info=>info, :folders=>folders, :merge_to=>merge_to }
+  #  end
+  #end
+
 
   def rm_folders(folders)
     folders.each do |folder|
@@ -123,7 +145,9 @@ class SolrIndexManager
        create_copy_from_hadoop_commands(batch_size, folders)] }
   end
 
-  def create_batches(folders, size_limit)
+  FolderGroup = Struct.new(:total_size, :folder_info_list)
+
+  def group_folders(folders, size_limit)
     list_of_batches = []
     batch = []
     total_size = 0
@@ -201,13 +225,8 @@ class SolrIndexManager
     sys_cmd(mkdir)
   end
 
-  def get_folders(path)
-    folders = []
-    %x[ls #{path}].split("\n").each do |sub_folder|
-      folder = "#{path}/#{sub_folder} "
-      folders << folder
-    end
-    folders
+  def get_files(path)
+    %x[ls #{path}].split("\n").map {|file| file }
   end
 
   def wait_for_job
@@ -235,6 +254,7 @@ class SolrIndexManager
 
       out = " %02d/%02d-%03d" % [cnt+=1, file_info_list.size, percentage] << "% "
       [file, path, size, key, out]
+      #{:file=>file, :path=>path, :size=>size, :key=>key, :status=>out}
     end
   end
 
@@ -244,16 +264,9 @@ class SolrIndexManager
     makedir(merge_dest)
     merge << merge_dest + " "
 
-    puts "wil merge to: '#{merge_dest}'"
+    puts "will merge to: '#{merge_dest}'"
     merge << folders.join(' ')
     merge << " >solr_merge.out"
-    puts ""
     sys_cmd(merge)
-  end
-
-  def move_index
-    makedir(@move_dst)
-    size = %x[du -k #{@merge_dst}].split(/\n/).last.to_i
-    sys_cmd("mv #{@merge_dst} #{@move_dst}", size*1024)
   end
 end
