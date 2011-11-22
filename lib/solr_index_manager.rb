@@ -151,14 +151,14 @@ class SolrIndexManager
     list_of_batches = []
     batch = []
     total_size = 0
-    folders.each do |name, size, job_info|
+    folders.each do |name, size, job_info, part_name|
       if (total_size+size > size_limit && batch.size > 0)
         list_of_batches << [total_size, batch]
         total_size = 0
         batch = []
       end
       total_size += size
-      batch << [name, size, job_info]
+      batch << [name, size, job_info, part_name]
     end
     list_of_batches << [total_size, batch]
     list_of_batches
@@ -198,13 +198,14 @@ class SolrIndexManager
       size, filename = size_filename.split(/\s+/)
       size = size.to_i / (1024*1024)
       job_info = %x[hadoop fs -cat #{filename.strip}/.job.info]
+      filename = filename.strip.split('/').last
       print "."
-      list << [filename, size, job_info]
+      list << [filename, size, job_info, filename]
       total_size += size
       total_num_docs += /\d+\s*documents/.match(job_info).to_s.to_i
     end
     puts " Total size:%6.2fGb DocCount:%9d" % [total_size/(1024.0), total_num_docs]
-    return list.sort_by { |name, size, job_info| job_info }
+    return list.sort_by { |name, size, job_info, filename| job_info }
   end
 
   def sys_cmd(cmd, size=0, status="")
@@ -246,8 +247,12 @@ class SolrIndexManager
   def create_copy_from_hadoop_commands(total_size, file_info_list)
     done_size = 0
     cnt = 0
-    file_info_list.map do |file, size, json|
-      key = /\d+/.match(json).to_s
+    file_info_list.map do |file, size, json, part|
+      #puts json
+      key = /key\s?'(\d+)'/.match(json)
+      key = key[1] if (key)
+      key = part if(!key || key.empty?)
+      #puts key
       path = "#{@local_src}/#{key}"
       done_size += size.to_i
       percentage = (done_size * 100) / total_size
