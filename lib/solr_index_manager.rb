@@ -198,9 +198,9 @@ class SolrIndexManager
       size, filename = size_filename.split(/\s+/)
       size = size.to_i / (1024*1024)
       job_info = %x[hadoop fs -cat #{filename.strip}/.job.info]
-      filename = filename.strip.split('/').last
+      part = filename.strip.split('/').last
       print "."
-      list << [filename, size, job_info, filename]
+      list << [filename, size, job_info, part]
       total_size += size
       total_num_docs += /\d+\s*documents/.match(job_info).to_s.to_i
     end
@@ -248,11 +248,9 @@ class SolrIndexManager
     done_size = 0
     cnt = 0
     file_info_list.map do |file, size, json, part|
-      #puts json
       key = /key\s?'(\d+)'/.match(json)
       key = key[1] if (key)
       key = part if(!key || key.empty?)
-      #puts key
       path = "#{@local_src}/#{key}"
       done_size += size.to_i
       percentage = (done_size * 100) / total_size
